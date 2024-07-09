@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Health Information</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        body.light-mode {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        body.dark-mode {
+            background-color: #333;
+            color: #f0f0f0;
+        }
+        h1 {
+            text-align: center;
+            border-bottom: 2px solid;
+            padding-bottom: 10px;
+        }
+        form, #response {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            transition: background-color 0.3s;
+        }
+        label {
+            display: block;
+            margin-bottom: 10px;
+        }
+        textarea, input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            background-color: rgba(255, 255, 255, 0.8);
+            color: #333;
+        }
+        textarea {
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+            transform: scale(1.05);
+        }
+        #delete-btn {
+            background-color: #f44336;
+        }
+        #delete-btn:hover {
+            background-color: #da190b;
+        }
+        .chat-bubble {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            max-width: 80%;
+        }
+        .user-bubble {
+            align-self: flex-end;
+            background-color: #4CAF50;
+            color: white;
+        }
+        .assistant-bubble {
+            align-self: flex-start;
+            background-color: #2196F3;
+            color: white;
+        }
+        #chat-container {
+            display: flex;
+            flex-direction: column;
+        }
+        .loading {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .loading:after {
+            content: '.';
+            animation: dots 1s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% {
+                color: rgba(0,0,0,0);
+                text-shadow:
+                    .25em 0 0 rgba(0,0,0,0),
+                    .5em 0 0 rgba(0,0,0,0);
+            }
+            40% {
+                color: white;
+                text-shadow:
+                    .25em 0 0 rgba(0,0,0,0),
+                    .5em 0 0 rgba(0,0,0,0);
+            }
+            60% {
+                text-shadow:
+                    .25em 0 0 white,
+                    .5em 0 0 rgba(0,0,0,0);
+            }
+            80%, 100% {
+                text-shadow:
+                    .25em 0 0 white,
+                    .5em 0 0 white;
+            }
+        }
+    </style>
+</head>
+<body class="light-mode">
+    <h1>Health Information Chat</h1>
+    <button id="theme-toggle">Toggle Dark Mode</button>
+    <form id="info-form" method="post" action="/info" enctype="multipart/form-data">
+        <label for="msg">Ask about a health topic or condition:</label>
+        <textarea id="msg" name="msg" rows="4" cols="50"></textarea>
+        
+        <label for="pdf">Upload a PDF (optional):</label>
+        <input type="file" id="pdf" name="pdf" accept=".pdf">
+        
+        <button type="submit">Get Information</button>
+        <button type="button" id="voice-input">Voice Input</button>
+    </form>
+    <div id="chat-container"></div>
+    <div id="response"></div>
+    <div>
+        <button id="download-txt-btn">Download Conversation (TXT)</button>
+        <button id="download-pdf-btn">Download Conversation (PDF)</button>
+        <button id="delete-btn">Delete Conversation</button>
+        <button id="read-aloud-btn">Read Aloud</button>
+    </div>
+    
+    <script>
+        const themeToggle = document.getElementById('theme-toggle');
+        const body = document.body;
+
+        themeToggle.addEventListener('click', () => {
+            body.classList.toggle('dark-mode');
+            body.classList.toggle('light-mode');
+        });
+
+        document.getElementById("info-form").onsubmit = async function(event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            const chatContainer = document.getElementById("chat-container");
+            
+            // Add user message
+            const userBubble = document.createElement('div');
+            userBubble.className = 'chat-bubble user-bubble';
+            userBubble.textContent = formData.get('msg');
+            chatContainer.appendChild(userBubble);
+            
+            // Add loading animation
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading';
+            loadingDiv.textContent = 'Thinking';
+            chatContainer.appendChild(loadingDiv);
+            
+            try {
+                const response = await fetch("/info", {
+                    method: "POST",
+                    body: formData,
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.text();
+                
+                // Remove loading animation
+                chatContainer.removeChild(loadingDiv);
+                
+                // Add assistant response
+                const assistantBubble = document.createElement('div');
+                assistantBubble.className = 'chat-bubble assistant-bubble';
+                assistantBubble.innerHTML = marked.parse(result);
+                chatContainer.appendChild(assistantBubble);
+            } catch (error) {
+                chatContainer.removeChild(loadingDiv);
+                const errorBubble = document.createElement('div');
+                errorBubble.className = 'chat-bubble assistant-bubble';
+                errorBubble.textContent = `Error: ${error.message}`;
+                chatContainer.appendChild(errorBubble);
+            }
+            
+            // Clear input
+            document.getElementById("msg").value = "";
+            document.getElementById("pdf").value = "";
+        };
+
+        document.getElementById("download-txt-btn").onclick = function() {
+            const text = document.getElementById("chat-container").innerText;
+            const blob = new Blob([text], { type: "text/plain" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "conversation.txt";
+            a.click();
+        };
+
+        document.getElementById("download-pdf-btn").onclick = function() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const text = document.getElementById("chat-container").innerText;
+            doc.text(text, 10, 10);
+            doc.save("conversation.pdf");
+        };
+
+        document.getElementById("delete-btn").onclick = function() {
+            document.getElementById("chat-container").innerHTML = "";
+            document.getElementById("msg").value = "";
+            document.getElementById("pdf").value = "";
+        };
+
+        document.getElementById("voice-input").onclick = function() {
+            if ('webkitSpeechRecognition' in window) {
+                const recognition = new webkitSpeechRecognition();
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    document.getElementById("msg").value = transcript;
+                };
+                recognition.start();
+            } else {
+                alert("Speech recognition is not supported in your browser.");
+            }
+        };
+
+        document.getElementById("read-aloud-btn").onclick = function() {
+            const text = document.getElementById("chat-container").innerText;
+            const utterance = new SpeechSynthesisUtterance(text);
+            speechSynthesis.speak(utterance);
+        };
+    </script>
+</body>
+</html>
